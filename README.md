@@ -14,6 +14,7 @@ CommInternet enables communities to collectively fund, vote on, and manage local
 - 🏗️ **Infrastructure Management**: Track and manage local internet projects
 - 💸 **Profit Sharing**: Distribute network revenues to DAO members
 - 🔒 **Smart Contract Security**: All operations secured by Clarity contracts
+- 🚨 **Emergency Pause**: Community-controlled circuit breaker for emergency situations
 
 ## 🚀 Getting Started
 
@@ -90,6 +91,24 @@ Members can claim their share of network profits:
 (contract-call? .CommInternet claim-profit-share)
 ```
 
+### Emergency Pause System
+
+DAO members can collectively pause all critical functions in emergency situations:
+
+```clarity
+;; Vote to pause the system (requires 3 member votes)
+(contract-call? .CommInternet vote-to-pause)
+
+;; Clear your pause vote (before quorum is reached)
+(contract-call? .CommInternet clear-pause-vote)
+
+;; Check if system is paused
+(contract-call? .CommInternet is-paused)
+
+;; Unpause after emergency period expires
+(contract-call? .CommInternet unpause)
+```
+
 ## 🏗️ Smart Contract Architecture
 
 ### Core Functions
@@ -103,12 +122,15 @@ Members can claim their share of network profits:
 - **add-infrastructure**: Add infrastructure projects
 - **distribute-profits**: Add profits to distribution pool
 - **claim-profit-share**: Claim your profit distribution
+- **emergency-pause functions**: Community-controlled emergency circuit breaker
 
 ### Key Parameters
 
 - **Minimum Membership Fee**: 1 STX (100,000,000 microSTX)
 - **Voting Period**: 144 blocks (~24 hours)
 - **Minimum Quorum**: 51% of total voting power
+- **Emergency Pause Duration**: 1008 blocks (~7 days maximum)
+- **Emergency Pause Quorum**: 3 DAO members
 
 ## 🔍 Read-Only Functions
 
@@ -126,6 +148,9 @@ Query contract state without transactions:
 
 ;; Check voting status
 (contract-call? .CommInternet has-voted u1 'SP1VOTER...)
+
+;; Get emergency pause status
+(contract-call? .CommInternet get-pause-status)
 ```
 
 ## 🛠️ Development
