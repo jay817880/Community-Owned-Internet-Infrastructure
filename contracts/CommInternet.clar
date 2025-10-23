@@ -17,6 +17,11 @@
 (define-constant ERR_ALREADY_VOTED_PAUSE (err u412))
 (define-constant ERR_NOT_VOTED_PAUSE (err u413))
 (define-constant ERR_STILL_PAUSED (err u414))
+(define-constant ERR_NOT_ACTIVE (err u415))
+(define-constant ERR_INVALID_DELEGATEE (err u206))
+(define-constant ERR_SELF_DELEGATION (err u207))
+(define-constant ERR_NO_DELEGATION (err u208))
+(define-constant ERR_CIRCULAR_DELEGATION (err u209))
 
 (define-constant MIN_MEMBERSHIP_FEE u100000000)
 (define-constant VOTING_PERIOD u144)
@@ -57,6 +62,10 @@
 
 (define-map pause-votes principal bool)
 
+(define-map delegations principal principal)
+
+(define-map delegation-overrides { delegator: principal, proposal-id: uint } bool)
+
 (define-map infrastructure uint {
     id: uint,
     location: (string-utf8 100),
@@ -67,6 +76,13 @@
 })
 
 (define-data-var infrastructure-count uint u0)
+
+(define-map member-activity-count principal uint)
+
+(define-map member-activity { member: principal, index: uint } {
+    activity-type: (string-utf8 20),
+    block-height: uint
+})
 
 
 (define-public (join-dao (amount uint))
@@ -83,6 +99,7 @@
         })
         (var-set total-members (+ (var-get total-members) u1))
         (var-set total-funds (+ (var-get total-funds) amount))
+        (log-activity caller u"join")
         (ok true)
     )
 )
@@ -93,6 +110,7 @@
           (refund-amount (/ (get stake member-data) u2)))
         (asserts! (not (is-paused)) ERR_SYSTEM_PAUSED)
         (asserts! (get is-active member-data) ERR_NOT_MEMBER)
+        (log-activity caller u"leave")
         (try! (as-contract (stx-transfer? refund-amount tx-sender caller)))
         (map-delete members caller)
         (var-set total-members (- (var-get total-members) u1))
@@ -112,6 +130,7 @@
             voting-power: (/ (+ (get stake member-data) amount) u100000000)
         }))
         (var-set total-funds (+ (var-get total-funds) amount))
+        (log-activity caller u"add-funds")
         (ok true)
     )
 )
@@ -160,6 +179,7 @@
                 votes-against: (+ (get votes-against proposal-data) voting-power)
             }))
         )
+        (log-activity caller u"vote")
         (ok true)
     )
 )
@@ -229,6 +249,7 @@
         (asserts! (> profit-share u0) ERR_INSUFFICIENT_FUNDS)
         (try! (as-contract (stx-transfer? profit-share tx-sender caller)))
         (var-set profit-pool (- (var-get profit-pool) profit-share))
+        (log-activity caller u"claim-profit")
         (ok profit-share)
     )
 )
@@ -326,4 +347,64 @@
 
 (define-read-only (has-voted-pause (voter principal))
     (is-some (map-get? pause-votes voter))
+)
+
+(define-private (log-activity (member principal) (activity-type (string-utf8 20)))
+    (let ((current-count (default-to u0 (map-get? member-activity-count member))))
+        (map-set member-activity-count member (+ current-count u1))
+        (map-set member-activity { member: member, index: current-count } {
+            activity-type: activity-type,
+            block-height: stacks-block-height
+        })
+    )
+)
+
+(define-public (delegate-voting-power (delegatee principal))
+    (let ((delegator tx-sender)
+          (delegator-member (unwrap! (map-get? members delegator) ERR_NOT_MEMBER))
+          (delegatee-member (unwrap! (map-get? members delegatee) ERR_INVALID_DELEGATEE))
+          (delegatee-next (map-get? delegations delegatee)))
+        (asserts! (not (is-paused)) ERR_SYSTEM_PAUSED)
+        (asserts! (get is-active delegator-member) ERR_NOT_ACTIVE)
+        (asserts! (get is-active delegatee-member) ERR_INVALID_DELEGATEE)
+        (asserts! (not (is-eq delegator delegatee)) ERR_SELF_DELEGATION)
+        (asserts! (not (is-eq delegator (unwrap-panic delegatee-next))) ERR_CIRCULAR_DELEGATION)
+        (ok (map-set delegations delegator delegatee))
+    )
+)
+
+(define-public (revoke-delegation)
+    (let ((delegator tx-sender))
+        (asserts! (not (is-paused)) ERR_SYSTEM_PAUSED)
+        (asserts! (is-some (map-get? delegations delegator)) ERR_NO_DELEGATION)
+        (ok (map-delete delegations delegator))
+    )
+)
+
+(define-read-only (get-delegation (delegator principal))
+    (ok (map-get? delegations delegator))
+)
+
+(define-read-only (get-delegated-voting-power (member principal))
+    (let ((member-data (unwrap! (map-get? members member) ERR_NOT_MEMBER))
+          (own-power (get voting-power member-data)))
+        (ok own-power)
+    )
+)
+
+(define-read-only (get-member-activity-count (member principal))
+    (default-to u0 (map-get? member-activity-count member))
+)
+
+(define-read-only (get-member-activity (member principal) (index uint))
+    (map-get? member-activity { member: member, index: index })
+)
+
+(define-read-only (get-last-activity (member principal))
+    (let ((count (get-member-activity-count member)))
+        (if (> count u0)
+            (map-get? member-activity { member: member, index: (- count u1) })
+            none
+        )
+    )
 )
